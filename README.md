@@ -106,6 +106,4 @@ Peace sign and thumbs up both count as a "closed-ish" hand under the base fist/o
 
 ---
 
-*Original base project: [jayesh-cmd/virtual-steering-wheel](https://github.com/jayesh-cmd/virtual-steering-wheel) — this fork adds gesture-based nitro/handbrake controls and a couple of config fixes.*
-
 — Souvik
