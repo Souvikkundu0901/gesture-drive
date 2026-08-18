@@ -1,8 +1,8 @@
-# 🎮 Virtual Steering Wheel — Extended (Nitro + Handbrake)
+# 🎮 Gesture Drive — Hand-Controlled Steering Wheel
 
-Control any arrow-key browser/PC racing game using just your hands and a webcam — no hardware needed.
+Control any arrow-key browser or PC racing game using just your hands and a webcam — no hardware needed.
 
-This is a personal extension of [jayesh-cmd/virtual-steering-wheel](https://github.com/jayesh-cmd/virtual-steering-wheel), built on top of the original MediaPipe hand-tracking base with two extra gestures for nitro and handbrake, plus a couple of small fixes.
+Built on MediaPipe hand-tracking, with added gestures for nitro and handbrake on top of core steering, acceleration, and braking.
 
 ---
 
@@ -106,4 +106,4 @@ Peace sign and thumbs up both count as a "closed-ish" hand under the base fist/o
 
 ---
 
-— Souvik
+Built by [Souvik Kundu](https://github.com/Souvikkundu0901)
