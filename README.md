@@ -10,7 +10,7 @@ Built on MediaPipe hand-tracking, with added gestures for nitro and handbrake on
 
 | File | Purpose |
 |---|---|
-| `steering_wheel_extended.py` | Main script — run this |
+| `steering_wheel_.py` | Main script — run this |
 | `requirements.txt` | Python dependencies |
 | `README.md` | This file |
 
