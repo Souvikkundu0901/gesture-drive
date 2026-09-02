@@ -8,6 +8,7 @@ import time
 import platform
 import atexit
 import signal
+import ctypes
 from pynput.keyboard import Key, Controller
 
 CAMERA_INDEX        = 0         # 0 = built-in webcam. Change to 1/2 for external cam
@@ -21,8 +22,8 @@ MIN_TRACKING_CONF    = 0.5
 GRACE_FRAMES         = 8
 OPEN_FINGER_THRESH   = 3
 
-# --- New: gesture config ---
-NITRO_KEY            = Key.shift   # peace sign -> nitro
+# --- Gesture config (Safe keys to prevent Windows/Chrome lockups) ---
+NITRO_KEY            = 'n'         # peace sign -> nitro ('n' instead of Shift to avoid Sticky Keys)
 HANDBRAKE_KEY        = Key.space   # thumbs up  -> handbrake
 GESTURE_HOLD_FRAMES  = 3           # consecutive frames required to trigger a gesture
 GESTURE_RELEASE_FRAMES = 3         # consecutive frames required to release it
@@ -46,8 +47,21 @@ keyboard = Controller()
 # Keys that this program is allowed to control.
 CONTROLLED_KEYS = (
     Key.left, Key.right, Key.up, Key.down,
+    Key.shift, Key.shift_l, Key.shift_r, Key.space,
     NITRO_KEY, HANDBRAKE_KEY,
 )
+
+def windows_force_keyup():
+    """Forces Windows OS to clear any virtual keydown states for all controlled keys and modifiers."""
+    if platform.system() == "Windows":
+        try:
+            user32 = ctypes.windll.user32
+            # VK_SHIFT=0x10, VK_CONTROL=0x11, VK_MENU=0x12, VK_SPACE=0x20, VK_LEFT=0x25, VK_UP=0x26, VK_RIGHT=0x27, VK_DOWN=0x28, VK_LSHIFT=0xA0, VK_RSHIFT=0xA1, 'N'=0x4E, 'B'=0x42
+            vk_codes = [0x10, 0x11, 0x12, 0x20, 0x25, 0x26, 0x27, 0x28, 0xA0, 0xA1, 0x4E, 0x42]
+            for vk in vk_codes:
+                user32.keybd_event(vk, 0, 0x0002, 0)  # KEYEVENTF_KEYUP = 0x0002
+        except Exception:
+            pass
 
 def force_release_keyboard():
     """Release every key this program can control, even if our state is wrong."""
@@ -56,6 +70,7 @@ def force_release_keyboard():
             keyboard.release(key)
         except Exception:
             pass
+    windows_force_keyup()
 
 # If the previous run was interrupted, clear any modifier/control-key state
 # before starting a new run.
@@ -371,7 +386,7 @@ def draw_steering_wheel(frame, center, angle_deg, direction, strength):
 
 
 def draw_hud(frame, angle, direction, strength, throttle_mode, both_hands_visible,
-             left_open, right_open, fps, nitro_active, handbrake_active):
+             left_open, right_open, fps, nitro_active, handbrake_active, is_paused=False):
     h, w = frame.shape[:2]
 
     overlay = frame.copy()
@@ -413,14 +428,14 @@ def draw_hud(frame, angle, direction, strength, throttle_mode, both_hands_visibl
     cv2.rectangle(frame, (bar_x, h - 95), (bar_x + bar_w, h - 72), throttle_color, 2)
     cv2.putText(frame, throttle_label, (bar_x + 10, h - 78), font, 0.65, throttle_color, 2)
 
-    # --- New: gesture status row (nitro / handbrake) ---
+    # --- Gesture status row (nitro / handbrake) ---
     gest_y1, gest_y2 = h - 65, h - 42
     half_w = bar_w // 2 - 5
 
     nitro_color = CLR_NITRO if nitro_active else (60, 60, 70)
     cv2.rectangle(frame, (bar_x, gest_y1), (bar_x + half_w, gest_y2), (30, 30, 40), -1)
     cv2.rectangle(frame, (bar_x, gest_y1), (bar_x + half_w, gest_y2), nitro_color, 2)
-    cv2.putText(frame, "NITRO [SHIFT]" if nitro_active else "nitro: peace sign",
+    cv2.putText(frame, "NITRO [N]" if nitro_active else "nitro: peace [N]",
                 (bar_x + 8, gest_y2 - 6), font, 0.5, nitro_color, 2 if nitro_active else 1)
 
     hb_color = CLR_HANDBRK if handbrake_active else (60, 60, 70)
@@ -439,9 +454,15 @@ def draw_hud(frame, angle, direction, strength, throttle_mode, both_hands_visibl
 
     cv2.putText(frame, f"FPS: {fps:.0f}", (w - 90, 30), font, 0.55, CLR_ACCENT, 1)
 
-    status       = "BOTH HANDS DETECTED" if both_hands_visible else "SHOW BOTH HANDS"
-    status_color = (60, 220, 60) if both_hands_visible else (0, 80, 255)
-    cv2.putText(frame, status, (10, 30), font, 0.55, status_color, 1)
+    if is_paused:
+        # Prominent PAUSE warning at the top center
+        cv2.rectangle(frame, (w // 2 - 190, 10), (w // 2 + 190, 48), (0, 0, 180), -1)
+        cv2.putText(frame, "PAUSED (Press P to Resume)", (w // 2 - 175, 36), font, 0.65, (255, 255, 255), 2)
+    else:
+        status       = "BOTH HANDS DETECTED" if both_hands_visible else "SHOW BOTH HANDS"
+        status_color = (60, 220, 60) if both_hands_visible else (0, 80, 255)
+        cv2.putText(frame, status, (10, 30), font, 0.55, status_color, 1)
+        cv2.putText(frame, "[P]=Pause [ESC]=Quit", (10, 55), font, 0.45, (180, 180, 180), 1)
 
     draw_steering_wheel(frame, (w - 80, h - 100), angle, direction, strength)
 
@@ -504,14 +525,17 @@ def main():
     lost_frames       = 0
     nitro_active      = False
     handbrake_active  = False
+    is_paused         = False
 
     print("=" * 55)
-    print("  Virtual Steering Wheel (Extended)  |  Press Q to quit")
+    print("  Virtual Steering Wheel (Extended)  |  ESC or Q to quit")
     print("=" * 55)
     print("  FIST        = Accelerate (UP)     OPEN  = Brake (DOWN)")
-    print("  PEACE SIGN  = Nitro (SHIFT)        THUMBS UP = Handbrake (SPACE)")
+    print("  PEACE SIGN  = Nitro (N)           THUMBS UP = Handbrake (SPACE)")
     print("  Tilt hands LEFT/RIGHT to steer — works in any mode")
-    print("  R = emergency release of ALL controlled keys")
+    print("  P = Pause/Resume controller (releases all keys)")
+    print("  R = Emergency release of ALL controlled keys")
+    print("  ESC / Q = Stop and close cleanly")
     print("=" * 55)
 
     try:
@@ -552,29 +576,37 @@ def main():
                     if gesture:
                         gestures_this_frame.add(gesture)
 
-                if "Left" in hand_data and "Right" in hand_data:
-                    both_visible = True
-                    lost_frames  = 0
+                if not is_paused:
+                    if "Left" in hand_data and "Right" in hand_data:
+                        both_visible = True
+                        lost_frames  = 0
 
-                    lx_n, ly_n, lx_px, ly_px, left_open  = hand_data["Left"]
-                    rx_n, ry_n, rx_px, ry_px, right_open = hand_data["Right"]
+                        lx_n, ly_n, lx_px, ly_px, left_open  = hand_data["Left"]
+                        rx_n, ry_n, rx_px, ry_px, right_open = hand_data["Right"]
 
-                    draw_hand_connection(frame, (lx_px, ly_px), (rx_px, ry_px))
-                    angle, direction, strength = controller.update_steer((lx_n, ly_n), (rx_n, ry_n))
-                    throttle_mode = controller.update_throttle(left_open, right_open)
+                        draw_hand_connection(frame, (lx_px, ly_px), (rx_px, ry_px))
+                        angle, direction, strength = controller.update_steer((lx_n, ly_n), (rx_n, ry_n))
+                        throttle_mode = controller.update_throttle(left_open, right_open)
+                    else:
+                        lost_frames += 1
+                        if lost_frames >= GRACE_FRAMES:
+                            controller.release_all()
+                            angle, direction, strength = 0.0, "STRAIGHT", 0.0
+                            throttle_mode = "NEUTRAL"
+                            left_open = right_open = False
+
+                    # gestures are evaluated from whichever hands are visible, even if only one
+                    nitro_active, handbrake_active = controller.update_gestures(gestures_this_frame)
                 else:
-                    lost_frames += 1
-                    if lost_frames >= GRACE_FRAMES:
-                        controller.release_all()
-                        angle, direction, strength = 0.0, "STRAIGHT", 0.0
-                        throttle_mode = "NEUTRAL"
-                        left_open = right_open = False
-
-                # gestures are evaluated from whichever hands are visible, even if only one
-                nitro_active, handbrake_active = controller.update_gestures(gestures_this_frame)
+                    # When paused, keep keys released
+                    controller.release_all()
+                    angle, direction, strength = 0.0, "STRAIGHT", 0.0
+                    throttle_mode = "NEUTRAL"
+                    left_open = right_open = False
+                    nitro_active = handbrake_active = False
             else:
                 lost_frames += 1
-                if lost_frames >= GRACE_FRAMES:
+                if lost_frames >= GRACE_FRAMES or is_paused:
                     controller.release_all()
                     angle, direction, strength = 0.0, "STRAIGHT", 0.0
                     throttle_mode = "NEUTRAL"
@@ -588,15 +620,27 @@ def main():
             prev_time = now
 
             draw_hud(frame, angle, direction, strength, throttle_mode, both_visible,
-                     left_open, right_open, fps, nitro_active, handbrake_active)
+                     left_open, right_open, fps, nitro_active, handbrake_active, is_paused=is_paused)
             cv2.imshow(window_name, frame)
 
             key = cv2.waitKey(1) & 0xFF
 
-            # R = emergency keyboard reset. It immediately releases
-            # LEFT/RIGHT/UP/DOWN/SHIFT/SPACE without quitting the program.
+            # P = Pause/Resume toggle
+            if key in (ord('p'), ord('P')):
+                is_paused = not is_paused
+                controller.release_all()
+                force_release_keyboard()
+                nitro_active = False
+                handbrake_active = False
+                throttle_mode = "NEUTRAL"
+                direction = "STRAIGHT"
+                strength = 0.0
+                print(f"[INFO] Controller {'PAUSED' if is_paused else 'RESUMED'}.")
+
+            # R = emergency keyboard reset
             if key in (ord('r'), ord('R')):
                 controller.release_all()
+                force_release_keyboard()
                 nitro_active = False
                 handbrake_active = False
                 throttle_mode = "NEUTRAL"
@@ -604,6 +648,7 @@ def main():
                 strength = 0.0
                 print("[INFO] Emergency keyboard reset: all controlled keys released.")
 
+            # ESC (27) or Q = quit
             if key in (ord('q'), ord('Q'), 27):
                 break
 
